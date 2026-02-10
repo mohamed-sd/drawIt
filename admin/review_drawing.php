@@ -25,16 +25,22 @@ if (!$drawing_id) {
     redirect(SITE_URL . '/admin/review_drawings.php');
 }
 
-$stmt = $db->prepare("SELECT d.*, u.full_name, u.email, s.name as stage_name, s.stage_number
+$stmt = $db->prepare("SELECT d.*, u.full_name, u.email, s.name as stage_name, s.stage_number, c.name as competition_name
                       FROM drawings d
                       JOIN users u ON d.user_id = u.id
                       JOIN stages s ON d.stage_id = s.id
+                      JOIN competitions c ON d.competition_id = c.id
                       WHERE d.id = ?");
 $stmt->execute([$drawing_id]);
 $drawing = $stmt->fetch();
 
 if (!$drawing) {
     set_flash_message('العمل غير موجود', 'error');
+    redirect(SITE_URL . '/admin/review_drawings.php');
+}
+
+if (!admin_has_competition_access($user['id'], (int)$drawing['competition_id'])) {
+    set_flash_message('لا تمتلك صلاحية مراجعة هذه المسابقة', 'error');
     redirect(SITE_URL . '/admin/review_drawings.php');
 }
 
@@ -172,6 +178,11 @@ require_once '../includes/header.php';
                                 <span class="stage-badge stage-<?php echo $drawing['stage_number']; ?>">
                                     <?php echo htmlspecialchars($drawing['stage_name']); ?>
                                 </span>
+                            </p>
+                            <p class="mb-2">
+                                <i class="fas fa-award"></i>
+                                <strong>المسابقة:</strong>
+                                <?php echo htmlspecialchars($drawing['competition_name']); ?>
                             </p>
                             <p class="mb-2">
                                 <i class="fas fa-clock"></i>

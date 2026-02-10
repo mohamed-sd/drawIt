@@ -15,14 +15,15 @@ if (!is_logged_in() || !is_admin()) {
 
 $db = getDB();
 $user = get_current_user_data();
+$admin_competitions = get_admin_competitions($user['id']);
+$active_competition = get_admin_active_competition($user['id']);
+$competition_id = $active_competition['id'] ?? null;
 
 // المرحلة الحالية والمرحلة التالية
-$current_stage = get_active_stage();
+$current_stage = $competition_id ? get_active_stage($competition_id) : null;
 $next_stage = null;
 if ($current_stage) {
-    $stmt = $db->prepare("SELECT * FROM stages WHERE stage_number = ? LIMIT 1");
-    $stmt->execute([$current_stage['stage_number'] + 1]);
-    $next_stage = $stmt->fetch();
+    $next_stage = get_stage_by_number($competition_id, $current_stage['stage_number'] + 1);
 }
 $is_final_stage = $current_stage && !$next_stage;
 
@@ -32,8 +33,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'decid
     $decision = $_POST['decision'] ?? '';
 
     if ($drawing_id > 0 && in_array($decision, ['approved', 'rejected'], true) && $current_stage && $is_final_stage) {
-        $stmt = $db->prepare("SELECT id, user_id, title FROM drawings WHERE id = ? AND stage_id = ? AND status = 'approved' AND is_published = 1");
-        $stmt->execute([$drawing_id, $current_stage['id']]);
+        $stmt = $db->prepare("SELECT id, user_id, title FROM drawings WHERE id = ? AND stage_id = ? AND competition_id = ? AND status = 'approved' AND is_published = 1");
+        $stmt->execute([$drawing_id, $current_stage['id'], $competition_id]);
         $drawing = $stmt->fetch();
 
         if ($drawing) {
@@ -88,7 +89,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'decid
 
         if ($stats && $stats['total'] > 0) {
             // عدد المدراء
-            $stmt = $db->query("SELECT COUNT(*) FROM users WHERE role_id IN (3,4) AND is_active = 1");
+            $stmt = $db->prepare("SELECT COUNT(*) FROM competition_admins WHERE competition_id = ?");
+            $stmt->execute([$competition_id]);
             $admins_count = (int)$stmt->fetchColumn();
 
             if ((int)$stats['approved'] === $admins_count) {
@@ -119,17 +121,17 @@ if ($current_stage && $next_stage) {
                           (SELECT COUNT(*) FROM stage_qualifications WHERE drawing_id = d.id AND from_stage_id = ? AND to_stage_id = ? AND approval_status = 'approved') as approved_count
                           FROM drawings d
                           JOIN users u ON d.user_id = u.id
-                          WHERE d.stage_id = ? AND d.is_published = 1 AND d.status = 'approved' AND d.is_qualified = 0
+                          WHERE d.stage_id = ? AND d.competition_id = ? AND d.is_published = 1 AND d.status = 'approved' AND d.is_qualified = 0
                           ORDER BY d.total_votes DESC, d.created_at DESC");
-    $stmt->execute([$current_stage['id'], $next_stage['id'], $user['id'], $current_stage['id'], $next_stage['id'], $current_stage['id']]);
+    $stmt->execute([$current_stage['id'], $next_stage['id'], $user['id'], $current_stage['id'], $next_stage['id'], $current_stage['id'], $competition_id]);
     $drawings = $stmt->fetchAll();
 } elseif ($current_stage && $is_final_stage) {
     $stmt = $db->prepare("SELECT d.*, u.full_name
                           FROM drawings d
                           JOIN users u ON d.user_id = u.id
-                          WHERE d.stage_id = ? AND d.is_published = 1 AND d.status = 'approved'
+                          WHERE d.stage_id = ? AND d.competition_id = ? AND d.is_published = 1 AND d.status = 'approved'
                           ORDER BY d.total_votes DESC, d.created_at DESC");
-    $stmt->execute([$current_stage['id']]);
+    $stmt->execute([$current_stage['id'], $competition_id]);
     $drawings = $stmt->fetchAll();
 }
 
@@ -145,6 +147,29 @@ require_once '../includes/header.php';
                 <i class="fas fa-arrow-right"></i> رجوع
             </a>
         </div>
+
+        <?php if (!empty($admin_competitions)): ?>
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <div>
+                    <h5 class="mb-1"><i class="fas fa-award"></i> المسابقة الحالية</h5>
+                    <p class="mb-0 text-muted"><?php echo htmlspecialchars($active_competition['name'] ?? ''); ?></p>
+                </div>
+                <form method="GET" action="" class="d-flex align-items-center gap-2">
+                    <label for="competition_id" class="form-label mb-0">تغيير المسابقة</label>
+                    <select name="competition_id" id="competition_id" class="form-select" onchange="this.form.submit()">
+                        <?php foreach ($admin_competitions as $competition): ?>
+                            <option value="<?php echo $competition['id']; ?>" <?php echo ((int)$competition['id'] === (int)($active_competition['id'] ?? 0)) ? 'selected' : ''; ?>>
+                                <?php echo htmlspecialchars($competition['name']); ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                </form>
+            </div>
+        <?php else: ?>
+            <div class="alert alert-warning">
+                لا توجد مسابقات مرتبطة بحسابك حالياً.
+            </div>
+        <?php endif; ?>
 
         <?php if (!$current_stage): ?>
             <div class="alert alert-warning">لا توجد مرحلة نشطة حالياً.</div>

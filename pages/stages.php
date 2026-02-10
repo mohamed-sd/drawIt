@@ -9,10 +9,17 @@ require_once '../config/database.php';
 require_once '../includes/functions.php';
 
 $db = getDB();
-$stmt = $db->query("SELECT * FROM stages ORDER BY stage_number ASC");
-$stages = $stmt->fetchAll();
+$competition = get_current_competition();
+$stages = [];
+$active_stage = null;
 
-$active_stage = get_active_stage();
+if ($competition) {
+    $stmt = $db->prepare("SELECT * FROM stages WHERE competition_id = ? ORDER BY stage_number ASC");
+    $stmt->execute([$competition['id']]);
+    $stages = $stmt->fetchAll();
+
+    $active_stage = get_active_stage($competition['id']);
+}
 
 $page_title = 'مراحل المسابقة';
 require_once '../includes/header.php';
@@ -21,10 +28,14 @@ require_once '../includes/header.php';
 <div class="container my-5">
     <div class="text-center mb-5">
         <h1 class="display-4 fw-bold"><i class="fas fa-layer-group text-primary"></i> مراحل المسابقة</h1>
-        <p class="lead text-muted">تعرف على مراحل المسابقة وآلية التصويت في كل مرحلة</p>
+        <?php if ($competition): ?>
+            <p class="lead text-muted">مسابقة: <?php echo htmlspecialchars($competition['name']); ?></p>
+        <?php else: ?>
+            <p class="lead text-muted">لا توجد مسابقة محددة حالياً</p>
+        <?php endif; ?>
     </div>
 
-    <?php if ($active_stage): ?>
+    <?php if ($competition && $active_stage): ?>
         <div class="alert alert-info text-center">
             المرحلة الحالية: <strong><?php echo htmlspecialchars($active_stage['name']); ?></strong>
             <?php if ($active_stage['is_free_voting']): ?>
@@ -32,6 +43,13 @@ require_once '../includes/header.php';
             <?php else: ?>
                 <span class="badge bg-warning text-dark ms-2">تصويت مدفوع</span>
             <?php endif; ?>
+        </div>
+    <?php elseif (!$competition): ?>
+        <div class="alert alert-warning text-center">
+            لا توجد مسابقة محددة حالياً. الرجاء اختيار مسابقة من صفحة المسابقات.
+            <div class="mt-2">
+                <a href="competitions.php" class="btn btn-outline-primary btn-sm">عرض المسابقات</a>
+            </div>
         </div>
     <?php endif; ?>
 
@@ -74,9 +92,11 @@ require_once '../includes/header.php';
     </div>
 
     <div class="text-center mt-5">
-        <a href="drawings.php" class="btn btn-primary btn-lg">
-            <i class="fas fa-images"></i> مشاهدة الأعمال
-        </a>
+        <?php if ($competition): ?>
+            <a href="drawings.php?competition_id=<?php echo $competition['id']; ?>" class="btn btn-primary btn-lg">
+                <i class="fas fa-images"></i> مشاهدة الأعمال
+            </a>
+        <?php endif; ?>
     </div>
 </div>
 

@@ -198,10 +198,125 @@ function upload_image($file, $folder = 'profiles') {
 /**
  * الحصول على المرحلة النشطة الحالية
  */
-function get_active_stage() {
+function get_active_stage($competition_id = null) {
     $db = getDB();
-    $stmt = $db->query("SELECT * FROM stages WHERE is_active = 1 ORDER BY stage_number ASC LIMIT 1");
+    if (!$competition_id) {
+        return null;
+    }
+
+    $stmt = $db->prepare("SELECT * FROM stages WHERE competition_id = ? AND is_active = 1 ORDER BY stage_number ASC LIMIT 1");
+    $stmt->execute([$competition_id]);
     return $stmt->fetch();
+}
+
+function get_current_competition_id($fallback_to_active = true) {
+    $db = getDB();
+    $competition_id = null;
+
+    if (isset($_GET['competition_id']) && is_numeric($_GET['competition_id'])) {
+        $candidate = (int)$_GET['competition_id'];
+        $stmt = $db->prepare("SELECT id FROM competitions WHERE id = ? LIMIT 1");
+        $stmt->execute([$candidate]);
+        if ($stmt->fetchColumn()) {
+            $_SESSION['competition_id'] = $candidate;
+            $competition_id = $candidate;
+        }
+    }
+
+    if (!$competition_id && isset($_SESSION['competition_id'])) {
+        $candidate = (int)$_SESSION['competition_id'];
+        $stmt = $db->prepare("SELECT id FROM competitions WHERE id = ? LIMIT 1");
+        $stmt->execute([$candidate]);
+        if ($stmt->fetchColumn()) {
+            $competition_id = $candidate;
+        } else {
+            unset($_SESSION['competition_id']);
+        }
+    }
+
+    if (!$competition_id && $fallback_to_active) {
+        $stmt = $db->query("SELECT id FROM competitions WHERE is_active = 1 ORDER BY created_at DESC LIMIT 1");
+        $competition_id = $stmt->fetchColumn() ?: null;
+        if ($competition_id) {
+            $_SESSION['competition_id'] = (int)$competition_id;
+        }
+    }
+
+    return $competition_id;
+}
+
+function get_current_competition() {
+    $db = getDB();
+    $competition_id = get_current_competition_id();
+    if (!$competition_id) {
+        return null;
+    }
+
+    $stmt = $db->prepare("SELECT * FROM competitions WHERE id = ? LIMIT 1");
+    $stmt->execute([$competition_id]);
+    return $stmt->fetch();
+}
+
+function get_admin_competitions($admin_id) {
+    $db = getDB();
+    if (is_super_admin()) {
+        $stmt = $db->query("SELECT * FROM competitions ORDER BY created_at DESC");
+        return $stmt->fetchAll();
+    }
+
+    $stmt = $db->prepare("SELECT c.* FROM competitions c
+                          JOIN competition_admins ca ON ca.competition_id = c.id
+                          WHERE ca.admin_id = ?
+                          ORDER BY c.created_at DESC");
+    $stmt->execute([$admin_id]);
+    return $stmt->fetchAll();
+}
+
+function get_admin_active_competition($admin_id) {
+    $competitions = get_admin_competitions($admin_id);
+    if (empty($competitions)) {
+        return null;
+    }
+
+    $current_id = get_current_competition_id(false);
+    foreach ($competitions as $competition) {
+        if ($current_id && (int)$competition['id'] === (int)$current_id) {
+            return $competition;
+        }
+    }
+
+    $_SESSION['competition_id'] = (int)$competitions[0]['id'];
+    return $competitions[0];
+}
+
+function admin_has_competition_access($admin_id, $competition_id) {
+    if (is_super_admin()) {
+        return true;
+    }
+    $db = getDB();
+    $stmt = $db->prepare("SELECT 1 FROM competition_admins WHERE competition_id = ? AND admin_id = ? LIMIT 1");
+    $stmt->execute([$competition_id, $admin_id]);
+    return (bool)$stmt->fetchColumn();
+}
+
+function get_stage_by_number($competition_id, $stage_number) {
+    $db = getDB();
+    $stmt = $db->prepare("SELECT * FROM stages WHERE competition_id = ? AND stage_number = ? LIMIT 1");
+    $stmt->execute([$competition_id, $stage_number]);
+    return $stmt->fetch();
+}
+
+function is_contestant_joined($user_id, $competition_id) {
+    $db = getDB();
+    $stmt = $db->prepare("SELECT 1 FROM competition_contestants WHERE competition_id = ? AND user_id = ? AND status = 'active' LIMIT 1");
+    $stmt->execute([$competition_id, $user_id]);
+    return (bool)$stmt->fetchColumn();
+}
+
+function join_competition($user_id, $competition_id) {
+    $db = getDB();
+    $stmt = $db->prepare("INSERT IGNORE INTO competition_contestants (competition_id, user_id, status) VALUES (?, ?, 'active')");
+    return $stmt->execute([$competition_id, $user_id]);
 }
 
 /**

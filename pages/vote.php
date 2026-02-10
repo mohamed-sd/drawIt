@@ -18,10 +18,11 @@ if (!$drawing_id) {
     redirect(SITE_URL . '/pages/drawings.php');
 }
 
-$stmt = $db->prepare("SELECT d.*, u.full_name, s.name as stage_name, s.stage_number, s.is_free_voting
+$stmt = $db->prepare("SELECT d.*, u.full_name, s.name as stage_name, s.stage_number, s.is_free_voting, c.id as competition_id
                       FROM drawings d 
                       JOIN users u ON d.user_id = u.id 
-                      JOIN stages s ON d.stage_id = s.id 
+                      JOIN stages s ON d.stage_id = s.id
+                      JOIN competitions c ON d.competition_id = c.id
                       WHERE d.id = ? AND d.is_published = 1 AND d.status = 'approved'");
 $stmt->execute([$drawing_id]);
 $drawing = $stmt->fetch();
@@ -41,7 +42,11 @@ if (!$drawing['is_free_voting']) {
 $voter_ip = get_client_ip();
 if (has_voted($drawing_id, $drawing['stage_id'])) {
     set_flash_message('لقد صوّت لهذا العمل مسبقاً من هذا الجهاز', 'warning');
-    redirect(SITE_URL . '/pages/drawings.php');
+    $redirect_url = SITE_URL . '/pages/drawings.php';
+    if (!empty($drawing['competition_id'])) {
+        $redirect_url .= '?competition_id=' . (int)$drawing['competition_id'];
+    }
+    redirect($redirect_url);
 }
 
 // معالجة التصويت
@@ -76,12 +81,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $db->commit();
         
         set_flash_message('شكراً لك! تم تسجيل تصويتك بنجاح', 'success');
-        redirect(SITE_URL . '/pages/drawings.php');
+        $redirect_url = SITE_URL . '/pages/drawings.php';
+        if (!empty($drawing['competition_id'])) {
+            $redirect_url .= '?competition_id=' . (int)$drawing['competition_id'];
+        }
+        redirect($redirect_url);
         
     } catch (Exception $e) {
         $db->rollBack();
         set_flash_message('حدث خطأ أثناء التصويت، حاول مرة أخرى', 'error');
-        redirect(SITE_URL . '/pages/drawings.php');
+        $redirect_url = SITE_URL . '/pages/drawings.php';
+        if (!empty($drawing['competition_id'])) {
+            $redirect_url .= '?competition_id=' . (int)$drawing['competition_id'];
+        }
+        redirect($redirect_url);
     }
 }
 

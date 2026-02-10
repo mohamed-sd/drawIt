@@ -14,15 +14,20 @@ if (!is_logged_in() || !is_admin()) {
 }
 
 $db = getDB();
+$user = get_current_user_data();
+$admin_competitions = get_admin_competitions($user['id']);
+$active_competition = get_admin_active_competition($user['id']);
+$competition_id = $active_competition['id'] ?? null;
 
 // تفعيل مرحلة
-if (isset($_GET['activate']) && is_numeric($_GET['activate'])) {
+if ($competition_id && isset($_GET['activate']) && is_numeric($_GET['activate'])) {
     $stage_id = (int)$_GET['activate'];
 
     $db->beginTransaction();
-    $db->exec("UPDATE stages SET is_active = 0");
-    $stmt = $db->prepare("UPDATE stages SET is_active = 1 WHERE id = ?");
-    $stmt->execute([$stage_id]);
+    $stmt = $db->prepare("UPDATE stages SET is_active = 0 WHERE competition_id = ?");
+    $stmt->execute([$competition_id]);
+    $stmt = $db->prepare("UPDATE stages SET is_active = 1 WHERE id = ? AND competition_id = ?");
+    $stmt->execute([$stage_id, $competition_id]);
     $db->commit();
 
     set_flash_message('تم تفعيل المرحلة بنجاح', 'success');
@@ -30,7 +35,7 @@ if (isset($_GET['activate']) && is_numeric($_GET['activate'])) {
 }
 
 // تحديث خصائص مرحلة
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'update_stage') {
+if ($competition_id && $_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'update_stage') {
     $stage_id = (int)($_POST['stage_id'] ?? 0);
     $name = clean_input($_POST['name'] ?? '');
     $description = clean_input($_POST['description'] ?? '');
@@ -38,16 +43,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'updat
     $is_free_voting = isset($_POST['is_free_voting']) ? 1 : 0;
 
     if ($stage_id > 0 && $name) {
-        $stmt = $db->prepare("UPDATE stages SET name = ?, description = ?, max_qualifiers = ?, is_free_voting = ? WHERE id = ?");
-        $stmt->execute([$name, $description, $max_qualifiers, $is_free_voting, $stage_id]);
+        $stmt = $db->prepare("UPDATE stages SET name = ?, description = ?, max_qualifiers = ?, is_free_voting = ? WHERE id = ? AND competition_id = ?");
+        $stmt->execute([$name, $description, $max_qualifiers, $is_free_voting, $stage_id, $competition_id]);
         set_flash_message('تم تحديث المرحلة بنجاح', 'success');
     }
     redirect(SITE_URL . '/admin/manage_stages.php');
 }
 
 // قائمة المراحل
-$stmt = $db->query("SELECT * FROM stages ORDER BY stage_number ASC");
-$stages = $stmt->fetchAll();
+$stages = [];
+if ($competition_id) {
+    $stmt = $db->prepare("SELECT * FROM stages WHERE competition_id = ? ORDER BY stage_number ASC");
+    $stmt->execute([$competition_id]);
+    $stages = $stmt->fetchAll();
+}
 
 $page_title = 'إدارة المراحل';
 require_once '../includes/header.php';
@@ -61,6 +70,29 @@ require_once '../includes/header.php';
                 <i class="fas fa-arrow-right"></i> رجوع
             </a>
         </div>
+
+        <?php if (!empty($admin_competitions)): ?>
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <div>
+                    <h5 class="mb-1"><i class="fas fa-award"></i> المسابقة الحالية</h5>
+                    <p class="mb-0 text-muted"><?php echo htmlspecialchars($active_competition['name'] ?? ''); ?></p>
+                </div>
+                <form method="GET" action="" class="d-flex align-items-center gap-2">
+                    <label for="competition_id" class="form-label mb-0">تغيير المسابقة</label>
+                    <select name="competition_id" id="competition_id" class="form-select" onchange="this.form.submit()">
+                        <?php foreach ($admin_competitions as $competition): ?>
+                            <option value="<?php echo $competition['id']; ?>" <?php echo ((int)$competition['id'] === (int)($active_competition['id'] ?? 0)) ? 'selected' : ''; ?>>
+                                <?php echo htmlspecialchars($competition['name']); ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                </form>
+            </div>
+        <?php else: ?>
+            <div class="alert alert-warning">
+                لا توجد مسابقات مرتبطة بحسابك حالياً.
+            </div>
+        <?php endif; ?>
 
         <?php foreach ($stages as $stage): ?>
             <div class="card mb-4">

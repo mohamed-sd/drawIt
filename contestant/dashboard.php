@@ -18,9 +18,10 @@ $user = get_current_user_data();
 $db = getDB();
 
 // الحصول على أعمال المتسابق
-$stmt = $db->prepare("SELECT d.*, s.name as stage_name, s.stage_number, s.is_free_voting, w.position as winner_position
+$stmt = $db->prepare("SELECT d.*, s.name as stage_name, s.stage_number, s.is_free_voting, w.position as winner_position, c.name as competition_name
                       FROM drawings d 
                       JOIN stages s ON d.stage_id = s.id
+                      JOIN competitions c ON d.competition_id = c.id
                       LEFT JOIN winners w ON w.drawing_id = d.id
                       WHERE d.user_id = ? 
                       ORDER BY d.created_at DESC");
@@ -40,35 +41,15 @@ $stmt = $db->prepare("SELECT COUNT(*) FROM notifications WHERE user_id = ? AND i
 $stmt->execute([$user['id']]);
 $unread_notifications = $stmt->fetchColumn();
 
-// حالة الاستعداد لرفع عمل جديد في المرحلة الحالية
-$active_stage = get_active_stage();
-$can_upload_new_stage = false;
-$upload_message = '';
-if ($active_stage) {
-    $stmt = $db->prepare("SELECT id FROM drawings WHERE user_id = ? AND stage_id = ? AND status IN ('pending', 'approved') LIMIT 1");
-    $stmt->execute([$user['id'], $active_stage['id']]);
-    $has_active_drawing = (bool)$stmt->fetch();
-
-    if (!$has_active_drawing) {
-        if ((int)$active_stage['stage_number'] === 1) {
-            $can_upload_new_stage = true;
-        } else {
-            $stmt = $db->prepare("SELECT id FROM stages WHERE stage_number = ? LIMIT 1");
-            $stmt->execute([(int)$active_stage['stage_number'] - 1]);
-            $previous_stage = $stmt->fetch();
-
-            if ($previous_stage) {
-                $stmt = $db->prepare("SELECT id FROM drawings WHERE user_id = ? AND stage_id = ? AND is_qualified = 1 AND status = 'approved' AND is_published = 1 LIMIT 1");
-                $stmt->execute([$user['id'], $previous_stage['id']]);
-                $can_upload_new_stage = (bool)$stmt->fetch();
-            }
-        }
-    }
-
-    if ($can_upload_new_stage) {
-        $upload_message = 'انت مستعد لرفع عمل جديد في ' . $active_stage['name'] . '. الادارة تتمنى لك التوفيق والنجاح في المراحل المقبلة.';
-    }
-}
+// مسابقات المتسابق
+$stmt = $db->prepare("SELECT c.*, s.id as active_stage_id, s.name as active_stage_name, s.stage_number
+                      FROM competitions c
+                      JOIN competition_contestants cc ON cc.competition_id = c.id
+                      LEFT JOIN stages s ON s.competition_id = c.id AND s.is_active = 1
+                      WHERE cc.user_id = ? AND cc.status = 'active'
+                      ORDER BY c.created_at DESC");
+$stmt->execute([$user['id']]);
+$my_competitions = $stmt->fetchAll();
 
 $page_title = 'لوحة تحكم المتسابق';
 require_once '../includes/header.php';
@@ -92,9 +73,34 @@ require_once '../includes/header.php';
         </div>
     </div>
 
-    <?php if ($upload_message): ?>
-        <div class="alert alert-success">
-            <i class="fas fa-star"></i> <?php echo htmlspecialchars($upload_message); ?>
+    <?php if (!empty($my_competitions)): ?>
+        <div class="dashboard-card">
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <h3><i class="fas fa-award"></i> مسابقاتي</h3>
+                <a href="../pages/competitions.php" class="btn btn-outline-primary btn-sm">عرض المسابقات</a>
+            </div>
+            <div class="row g-3">
+                <?php foreach ($my_competitions as $competition): ?>
+                    <div class="col-md-6">
+                        <div class="card h-100">
+                            <div class="card-body">
+                                <h5 class="mb-2"><?php echo htmlspecialchars($competition['name']); ?></h5>
+                                <p class="text-muted mb-2"><?php echo htmlspecialchars($competition['category'] ?? ''); ?></p>
+                                <?php if (!empty($competition['active_stage_id'])): ?>
+                                    <span class="stage-badge stage-<?php echo (int)$competition['stage_number']; ?>">
+                                        <?php echo htmlspecialchars($competition['active_stage_name']); ?>
+                                    </span>
+                                    <a href="upload.php?competition_id=<?php echo $competition['id']; ?>" class="btn btn-sm btn-primary mt-3">
+                                        <i class="fas fa-upload"></i> رفع عمل للمسابقة
+                                    </a>
+                                <?php else: ?>
+                                    <div class="alert alert-warning mb-0">لا توجد مرحلة نشطة حالياً</div>
+                                <?php endif; ?>
+                            </div>
+                        </div>
+                    </div>
+                <?php endforeach; ?>
+            </div>
         </div>
     <?php endif; ?>
 
@@ -104,7 +110,7 @@ require_once '../includes/header.php';
             <div class="stat-card stat-primary">
                 <i class="fas fa-palette fa-3x mb-3"></i>
                 <h3><?php echo number_format($total_my_drawings); ?></h3>
-                <p>أعمالي</p>
+                <p>مشاركاتي</p>
             </div>
         </div>
         <div class="col-md-4">
@@ -126,19 +132,19 @@ require_once '../includes/header.php';
     <!-- My Drawings -->
     <div class="dashboard-card">
         <div class="d-flex justify-content-between align-items-center mb-4">
-            <h3><i class="fas fa-images"></i> أعمالي</h3>
+            <h3><i class="fas fa-images"></i> مشاركاتي</h3>
             <a href="upload.php" class="btn btn-outline-primary">
-                <i class="fas fa-plus"></i> إضافة عمل جديد
+                <i class="fas fa-plus"></i> إضافة مشاركة جديدة
             </a>
         </div>
 
         <?php if (empty($my_drawings)): ?>
             <div class="text-center py-5">
                 <i class="fas fa-inbox fa-5x text-muted mb-3"></i>
-                <h4 class="text-muted">لم ترفع أي أعمال بعد</h4>
-                <p class="text-muted">ابدأ الآن بتحميل أول عمل لك في المسابقة</p>
+                <h4 class="text-muted">لم ترفع أي مشاركات بعد</h4>
+                <p class="text-muted">ابدأ الآن بتحميل أول مشاركة لك في المسابقة</p>
                 <a href="upload.php" class="btn btn-primary btn-lg mt-3">
-                    <i class="fas fa-upload"></i> ارفع عملك الأول
+                    <i class="fas fa-upload"></i> ارفع مشاركتك الأولى
                 </a>
             </div>
         <?php else: ?>
@@ -147,6 +153,7 @@ require_once '../includes/header.php';
                     <thead>
                         <tr>
                             <th>العنوان</th>
+                            <th>المسابقة</th>
                             <th>المرحلة</th>
                             <th>الحالة</th>
                             <th>الأصوات</th>
@@ -157,6 +164,7 @@ require_once '../includes/header.php';
                     <tbody>
                         <?php foreach ($my_drawings as $drawing): ?>
                             <tr>
+                                <td><?php echo htmlspecialchars($drawing['competition_name']); ?></td>
                                 <td>
                                     <strong><?php echo htmlspecialchars($drawing['title']); ?></strong>
                                     <?php if (!empty($drawing['winner_position'])): ?>

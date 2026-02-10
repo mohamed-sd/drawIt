@@ -18,17 +18,22 @@ if (!$drawing_id) {
     redirect(SITE_URL . '/pages/drawings.php');
 }
 
-$stmt = $db->prepare("SELECT d.*, u.full_name, u.id as user_id, s.name as stage_name, s.stage_number, s.is_free_voting
+$stmt = $db->prepare("SELECT d.*, u.full_name, u.id as user_id, s.name as stage_name, s.stage_number, s.is_free_voting, c.name as competition_name, c.id as competition_id
                       FROM drawings d
                       JOIN users u ON d.user_id = u.id
                       JOIN stages s ON d.stage_id = s.id
+                      JOIN competitions c ON d.competition_id = c.id
                       WHERE d.id = ?");
 $stmt->execute([$drawing_id]);
 $drawing = $stmt->fetch();
 
 if (!$drawing) {
     set_flash_message('العمل غير موجود', 'error');
-    redirect(SITE_URL . '/pages/drawings.php');
+    $redirect_url = SITE_URL . '/pages/drawings.php';
+    if (!empty($drawing['competition_id'])) {
+        $redirect_url .= '?competition_id=' . (int)$drawing['competition_id'];
+    }
+    redirect($redirect_url);
 }
 
 // التحقق من أن العمل منشور (إلا إذا كان المتسابق صاحب العمل أو مدير)
@@ -37,7 +42,11 @@ $can_view = $drawing['is_published'] || $is_owner || is_admin();
 
 if (!$can_view) {
     set_flash_message('هذا العمل غير منشور بعد', 'warning');
-    redirect(SITE_URL . '/pages/drawings.php');
+    $redirect_url = SITE_URL . '/pages/drawings.php';
+    if (!empty($drawing['competition_id'])) {
+        $redirect_url .= '?competition_id=' . (int)$drawing['competition_id'];
+    }
+    redirect($redirect_url);
 }
 
 // الحصول على التصويتات الأخيرة
@@ -89,6 +98,9 @@ require_once '../includes/header.php';
                                 <span class="stage-badge stage-<?php echo $drawing['stage_number']; ?> d-block mb-2">
                                     <?php echo htmlspecialchars($drawing['stage_name']); ?>
                                 </span>
+                                <div class="text-muted small mb-2">
+                                    <i class="fas fa-award"></i> <?php echo htmlspecialchars($drawing['competition_name']); ?>
+                                </div>
                                 <div class="vote-count">
                                     <i class="fas fa-heart text-danger"></i>
                                     <?php echo number_format($drawing['total_votes']); ?> صوت
@@ -251,8 +263,8 @@ require_once '../includes/header.php';
 
     <!-- Back Button -->
     <div class="text-center mt-4">
-        <a href="drawings.php" class="btn btn-outline-primary">
-            <i class="fas fa-arrow-right"></i> رجوع إلى جميع الأعمال
+        <a href="drawings.php<?php echo !empty($drawing['competition_id']) ? '?competition_id=' . (int)$drawing['competition_id'] : ''; ?>" class="btn btn-outline-primary">
+            <i class="fas fa-arrow-right"></i> رجوع إلى جميع المشاركات
         </a>
     </div>
 </div>

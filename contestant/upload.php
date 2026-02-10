@@ -17,11 +17,30 @@ if (!is_logged_in() || !is_contestant()) {
 $user = get_current_user_data();
 $db = getDB();
 
+// المسابقات التي انضم لها المتسابق
+$stmt = $db->prepare("SELECT c.* FROM competitions c
+                      JOIN competition_contestants cc ON cc.competition_id = c.id
+                      WHERE cc.user_id = ? AND cc.status = 'active'
+                      ORDER BY c.created_at DESC");
+$stmt->execute([$user['id']]);
+$joined_competitions = $stmt->fetchAll();
+
+if (empty($joined_competitions)) {
+    set_flash_message('يجب الاشتراك في مسابقة أولاً قبل رفع عمل جديد', 'warning');
+    redirect(SITE_URL . '/pages/competitions.php');
+}
+
+$selected_competition_id = isset($_GET['competition_id']) && is_numeric($_GET['competition_id']) ? (int)$_GET['competition_id'] : (int)$joined_competitions[0]['id'];
+$allowed_competition_ids = array_map('intval', array_column($joined_competitions, 'id'));
+if (!in_array($selected_competition_id, $allowed_competition_ids, true)) {
+    $selected_competition_id = (int)$joined_competitions[0]['id'];
+}
+
 // الحصول على المرحلة النشطة
-$active_stage = get_active_stage();
+$active_stage = get_active_stage($selected_competition_id);
 
 if (!$active_stage) {
-    set_flash_message('لا توجد مرحلة نشطة حالياً', 'warning');
+    set_flash_message('لا توجد مرحلة نشطة حالياً لهذه المسابقة', 'warning');
     redirect(SITE_URL . '/contestant/dashboard.php');
 }
 
@@ -31,13 +50,11 @@ $success = '';
 $is_eligible = true;
 $eligibility_message = '';
 if ((int)$active_stage['stage_number'] > 1) {
-    $stmt = $db->prepare("SELECT id FROM stages WHERE stage_number = ? LIMIT 1");
-    $stmt->execute([(int)$active_stage['stage_number'] - 1]);
-    $previous_stage = $stmt->fetch();
+    $previous_stage = get_stage_by_number($selected_competition_id, (int)$active_stage['stage_number'] - 1);
 
     if ($previous_stage) {
-        $stmt = $db->prepare("SELECT id FROM drawings WHERE user_id = ? AND stage_id = ? AND is_qualified = 1 AND status = 'approved' AND is_published = 1 LIMIT 1");
-        $stmt->execute([$user['id'], $previous_stage['id']]);
+        $stmt = $db->prepare("SELECT id FROM drawings WHERE user_id = ? AND competition_id = ? AND stage_id = ? AND is_qualified = 1 AND status = 'approved' AND is_published = 1 LIMIT 1");
+        $stmt->execute([$user['id'], $selected_competition_id, $previous_stage['id']]);
         $qualified_drawing = $stmt->fetch();
 
         if (!$qualified_drawing) {
@@ -50,8 +67,8 @@ if ((int)$active_stage['stage_number'] > 1) {
     }
 }
 
-$stmt = $db->prepare("SELECT id, status FROM drawings WHERE user_id = ? AND stage_id = ? AND status IN ('pending', 'approved') LIMIT 1");
-$stmt->execute([$user['id'], $active_stage['id']]);
+$stmt = $db->prepare("SELECT id, status FROM drawings WHERE user_id = ? AND competition_id = ? AND stage_id = ? AND status IN ('pending', 'approved') LIMIT 1");
+$stmt->execute([$user['id'], $selected_competition_id, $active_stage['id']]);
 $existing_drawing = $stmt->fetch();
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -87,9 +104,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // حفظ العمل في قاعدة البيانات
     if (empty($errors)) {
         try {
-            $stmt = $db->prepare("INSERT INTO drawings (user_id, stage_id, title, description, video_path, status) 
-                                  VALUES (?, ?, ?, ?, ?, 'pending')");
+            $stmt = $db->prepare("INSERT INTO drawings (competition_id, user_id, stage_id, title, description, video_path, status) 
+                                  VALUES (?, ?, ?, ?, ?, ?, 'pending')");
             $stmt->execute([
+                $selected_competition_id,
                 $user['id'],
                 $active_stage['id'],
                 $title,
@@ -100,9 +118,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $drawing_id = $db->lastInsertId();
             
             // إنشاء سجلات موافقة المدراء
-            $stmt = $db->prepare("SELECT id FROM users WHERE role_id IN (3, 4) AND is_active = 1");
-            $stmt->execute();
+            $stmt = $db->prepare("SELECT u.id FROM users u
+                                  JOIN competition_admins ca ON ca.admin_id = u.id
+                                  WHERE ca.competition_id = ? AND u.is_active = 1");
+            $stmt->execute([$selected_competition_id]);
             $admins = $stmt->fetchAll();
+
+            if (empty($admins)) {
+                throw new Exception('لا توجد لجنة تحكيم لهذه المسابقة حالياً');
+            }
             
             $stmt = $db->prepare("INSERT INTO admin_approvals (drawing_id, admin_id, approval_status) VALUES (?, ?, 'pending')");
             foreach ($admins as $admin) {
@@ -111,8 +135,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             
             set_flash_message('تم رفع عملك بنجاح! سيتم مراجعته من قبل الإدارة', 'success');
             redirect(SITE_URL . '/contestant/dashboard.php');
-        } catch (PDOException $e) {
-            $errors[] = 'حدث خطأ أثناء حفظ العمل';
+        } catch (Exception $e) {
+            $errors[] = $e->getMessage() ?: 'حدث خطأ أثناء حفظ العمل';
         }
     }
 }
@@ -133,14 +157,28 @@ require_once '../includes/header.php';
                 <div class="card-body p-4">
                     <!-- Current Stage Info -->
                     <div class="alert alert-info">
-                        <h5><i class="fas fa-info-circle"></i> المرحلة الحالية</h5>
-                        <p class="mb-0">
-                            <span class="stage-badge stage-<?php echo $active_stage['stage_number']; ?>">
-                                <?php echo htmlspecialchars($active_stage['name']); ?>
-                            </span>
-                            <br>
-                            <?php echo htmlspecialchars($active_stage['description']); ?>
-                        </p>
+                        <h5><i class="fas fa-info-circle"></i> المسابقة والمرحلة الحالية</h5>
+                        <div class="row g-2 align-items-center">
+                            <div class="col-md-6">
+                                <label class="form-label">المسابقة</label>
+                                <select class="form-select" onchange="window.location.href='?competition_id=' + this.value">
+                                    <?php foreach ($joined_competitions as $competition): ?>
+                                        <option value="<?php echo $competition['id']; ?>" <?php echo (int)$competition['id'] === (int)$selected_competition_id ? 'selected' : ''; ?>>
+                                            <?php echo htmlspecialchars($competition['name']); ?>
+                                        </option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">المرحلة الحالية</label>
+                                <div>
+                                    <span class="stage-badge stage-<?php echo $active_stage['stage_number']; ?>">
+                                        <?php echo htmlspecialchars($active_stage['name']); ?>
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+                        <p class="mb-0 mt-2"><?php echo htmlspecialchars($active_stage['description']); ?></p>
                     </div>
 
                     <?php if ($existing_drawing): ?>
@@ -190,7 +228,7 @@ require_once '../includes/header.php';
                         <!-- Video Upload -->
                         <div class="mb-4">
                             <label for="video" class="form-label">
-                                <i class="fas fa-video"></i> فيديو عملية الرسم *
+                                <i class="fas fa-video"></i> فيديو المشاركة *
                             </label>
                             <input type="file" class="form-control" id="video" name="video" 
                                    accept="video/*" required onchange="previewVideo(this, 'video-preview')">
@@ -208,7 +246,7 @@ require_once '../includes/header.php';
                         <div class="alert alert-warning">
                             <h6><i class="fas fa-exclamation-triangle"></i> ملاحظات هامة:</h6>
                             <ul class="mb-0">
-                                <li>يجب أن يُظهر الفيديو عملية الرسم بشكل واضح</li>
+                                <li>يجب أن يوضح الفيديو المشاركة بشكل واضح</li>
                                 <li>لن يُنشر عملك إلا بعد موافقة جميع المدراء</li>
                                 <li>تأكد من جودة الفيديو قبل الرفع</li>
                                 <li>يُفضل أن يكون الفيديو بجودة عالية</li>
@@ -231,9 +269,9 @@ require_once '../includes/header.php';
             <!-- Tips Card -->
             <div class="card mt-4">
                 <div class="card-body">
-                    <h5><i class="fas fa-lightbulb text-warning"></i> نصائح لعمل مميز:</h5>
+                    <h5><i class="fas fa-lightbulb text-warning"></i> نصائح لفيديو مميز:</h5>
                     <ul>
-                        <li>صوّر عملية الرسم من البداية للنهاية</li>
+                        <li>صوّر المشاركة من البداية للنهاية بشكل واضح</li>
                         <li>استخدم إضاءة جيدة للحصول على فيديو واضح</li>
                         <li>احرص على ثبات الكاميرا أثناء التصوير</li>
                         <li>يمكنك تسريع الفيديو لتقليل المدة</li>

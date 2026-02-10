@@ -34,15 +34,19 @@
                 <span class="navbar-toggler-icon"></span>
             </button>
             <div class="collapse navbar-collapse" id="navbarNav">
+                <?php $nav_competition_id = get_current_competition_id(); ?>
                 <ul class="navbar-nav me-auto">
                     <li class="nav-item">
                         <a class="nav-link" href="<?php echo SITE_URL; ?>"><i class="fas fa-home"></i> الرئيسية</a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link" href="<?php echo SITE_URL; ?>/pages/drawings.php"><i class="fas fa-images"></i> الأعمال</a>
+                        <a class="nav-link" href="<?php echo SITE_URL; ?>/pages/competitions.php"><i class="fas fa-award"></i> المسابقات</a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link" href="<?php echo SITE_URL; ?>/pages/stages.php"><i class="fas fa-trophy"></i> المراحل</a>
+                        <a class="nav-link" href="<?php echo SITE_URL; ?>/pages/drawings.php"><i class="fas fa-images"></i> المشاركات</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="<?php echo SITE_URL; ?>/pages/stages.php<?php echo $nav_competition_id ? '?competition_id=' . (int)$nav_competition_id : ''; ?>"><i class="fas fa-trophy"></i> المراحل</a>
                     </li>
                     <?php if(is_logged_in()): ?>
                         <?php if(is_contestant()): ?>

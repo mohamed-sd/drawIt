@@ -23,6 +23,7 @@ if ($super_admin_count > 0) {
 
 // بيانات المدير الرئيسي الأول
 $full_name = "المدير الرئيسي";
+$username = "superadmin";
 $email = "admin@drawit.com";
 $password = "Admin@123"; // غيّر هذا إلى كلمة مرور قوية
 $phone = "0500000000";
@@ -31,12 +32,13 @@ try {
     $hashed_password = hash_password($password);
     $role_id = 4; // super_admin
     
-    $stmt = $db->prepare("INSERT INTO users (full_name, email, phone, password, role_id, is_active) 
-                          VALUES (?, ?, ?, ?, ?, 1)");
-    $stmt->execute([$full_name, $email, $phone, $hashed_password, $role_id]);
+    $stmt = $db->prepare("INSERT INTO users (full_name, username, email, phone, password, role_id, is_active) 
+                          VALUES (?, ?, ?, ?, ?, ?, 1)");
+    $stmt->execute([$full_name, $username, $email, $phone, $hashed_password, $role_id]);
     
     echo "✅ تم إنشاء المدير الرئيسي بنجاح!<br><br>";
     echo "<strong>بيانات الدخول:</strong><br>";
+    echo "اسم المستخدم: $username<br>";
     echo "البريد الإلكتروني: $email<br>";
     echo "كلمة المرور: $password<br><br>";
     echo "<strong>⚠️ مهم جداً:</strong><br>";

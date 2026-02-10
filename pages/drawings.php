@@ -9,6 +9,18 @@ require_once '../config/database.php';
 require_once '../includes/functions.php';
 
 $db = getDB();
+$competition_id = isset($_GET['competition_id']) && is_numeric($_GET['competition_id']) && (int)$_GET['competition_id'] > 0
+    ? (int)$_GET['competition_id']
+    : null;
+$competition = null;
+if ($competition_id) {
+    $stmt = $db->prepare("SELECT * FROM competitions WHERE id = ? LIMIT 1");
+    $stmt->execute([$competition_id]);
+    $competition = $stmt->fetch();
+    if (!$competition) {
+        $competition_id = null;
+    }
+}
 
 // الفلاتر
 $stage_filter = isset($_GET['stage']) ? (int)$_GET['stage'] : 0;
@@ -22,9 +34,22 @@ $offset = ($page - 1) * $per_page;
 $where_sql = " WHERE d.is_published = 1 AND d.status = 'approved'";
 $params = [];
 
+if ($competition_id) {
+    $where_sql .= " AND d.competition_id = ?";
+    $params[] = $competition_id;
+}
+
 if ($stage_filter > 0) {
-    $where_sql .= " AND d.stage_id = ?";
-    $params[] = $stage_filter;
+    if ($competition_id) {
+        $stmt = $db->prepare("SELECT 1 FROM stages WHERE id = ? AND competition_id = ?");
+        $stmt->execute([$stage_filter, $competition_id]);
+        if ($stmt->fetchColumn()) {
+            $where_sql .= " AND d.stage_id = ?";
+            $params[] = $stage_filter;
+        } else {
+            $stage_filter = 0;
+        }
+    }
 }
 
 // الترتيب
@@ -45,17 +70,26 @@ $stmt = $db->prepare($count_sql);
 $stmt->execute($params);
 $total_drawings = (int)$stmt->fetchColumn();
 
-$sql = "SELECT d.*, u.full_name, s.name as stage_name, s.stage_number, s.is_free_voting
-        FROM drawings d 
-        JOIN users u ON d.user_id = u.id 
-        JOIN stages s ON d.stage_id = s.id" . $where_sql . $order_sql . " LIMIT ? OFFSET ?";
+$sql = "SELECT d.*, u.full_name, s.name as stage_name, s.stage_number, s.is_free_voting, c.name as competition_name
+    FROM drawings d 
+    JOIN users u ON d.user_id = u.id 
+    JOIN stages s ON d.stage_id = s.id
+    JOIN competitions c ON d.competition_id = c.id" . $where_sql . $order_sql . " LIMIT ? OFFSET ?";
 $stmt = $db->prepare($sql);
 $stmt->execute(array_merge($params, [$per_page, $offset]));
 $drawings = $stmt->fetchAll();
 
+// قائمة المسابقات للفلترة
+$stmt = $db->query("SELECT id, name FROM competitions WHERE is_active = 1 ORDER BY created_at DESC");
+$competitions = $stmt->fetchAll();
+
 // الحصول على المراحل للفلتر
-$stmt = $db->query("SELECT * FROM stages ORDER BY stage_number");
-$stages = $stmt->fetchAll();
+$stages = [];
+if ($competition_id) {
+    $stmt = $db->prepare("SELECT * FROM stages WHERE competition_id = ? ORDER BY stage_number");
+    $stmt->execute([$competition_id]);
+    $stages = $stmt->fetchAll();
+}
 
 $page_title = 'جميع الأعمال';
 require_once '../includes/header.php';
@@ -65,15 +99,32 @@ require_once '../includes/header.php';
     <!-- Page Header -->
     <div class="text-center mb-5">
         <h1 class="display-4 fw-bold">
-            <i class="fas fa-images text-primary"></i> الأعمال الفنية
+            <i class="fas fa-images text-primary"></i> المشاركات
         </h1>
-        <p class="lead text-muted">استعرض جميع الأعمال المشاركة في المسابقة وصوّت لأعمالك المفضلة</p>
+        <?php if ($competition): ?>
+            <p class="lead text-muted">مسابقة: <?php echo htmlspecialchars($competition['name']); ?></p>
+        <?php else: ?>
+            <p class="lead text-muted">استعرض المشاركات واختر المسابقة التي تريدها</p>
+        <?php endif; ?>
     </div>
 
     <!-- Filters -->
     <div class="card mb-4">
         <div class="card-body">
             <form method="GET" action="" class="row g-3 align-items-end">
+                <div class="col-md-4">
+                    <label for="competition_id" class="form-label">
+                        <i class="fas fa-award"></i> تصفية حسب المسابقة
+                    </label>
+                    <select class="form-select" id="competition_id" name="competition_id" onchange="if (document.getElementById('stage')) { document.getElementById('stage').value = 0; } this.form.submit()">
+                        <option value="0" <?php echo !$competition_id ? 'selected' : ''; ?>>جميع المسابقات</option>
+                        <?php foreach ($competitions as $item): ?>
+                            <option value="<?php echo $item['id']; ?>" <?php echo $competition_id == $item['id'] ? 'selected' : ''; ?>>
+                                <?php echo htmlspecialchars($item['name']); ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
                 <!-- Stage Filter -->
                 <div class="col-md-4">
                     <label for="stage" class="form-label">
@@ -106,7 +157,7 @@ require_once '../includes/header.php';
                 <div class="col-md-4">
                     <div class="alert alert-info mb-0">
                         <i class="fas fa-info-circle"></i>
-                        عدد الأعمال: <strong><?php echo number_format($total_drawings); ?></strong>
+                        عدد المشاركات: <strong><?php echo number_format($total_drawings); ?></strong>
                     </div>
                 </div>
             </form>
@@ -117,7 +168,7 @@ require_once '../includes/header.php';
     <?php if (empty($drawings)): ?>
         <div class="text-center py-5">
             <i class="fas fa-inbox fa-5x text-muted mb-3"></i>
-            <h4 class="text-muted">لا توجد أعمال منشورة حالياً</h4>
+            <h4 class="text-muted">لا توجد مشاركات منشورة حالياً</h4>
             <p class="text-muted">تحقق مرة أخرى قريباً</p>
         </div>
     <?php else: ?>
@@ -212,6 +263,9 @@ require_once '../includes/header.php';
                     'sort' => $sort,
                     'page' => $page + 1
                 ];
+                if ($competition_id) {
+                    $next_params['competition_id'] = $competition_id;
+                }
                 $next_url = 'drawings.php?' . http_build_query($next_params);
                 ?>
                 <a href="<?php echo $next_url; ?>" class="btn btn-outline-primary btn-lg">

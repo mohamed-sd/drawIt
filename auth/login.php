@@ -16,17 +16,17 @@ if (is_logged_in()) {
 $errors = [];
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $email = clean_input($_POST['email'] ?? '');
+    $login = clean_input($_POST['login'] ?? '');
     $password = $_POST['password'] ?? '';
     
-    if (empty($email) || empty($password)) {
-        $errors[] = 'البريد الإلكتروني وكلمة المرور مطلوبان';
+    if (empty($login) || empty($password)) {
+        $errors[] = 'اسم المستخدم أو البريد الإلكتروني وكلمة المرور مطلوبان';
     }
     
     if (empty($errors)) {
         $db = getDB();
-        $stmt = $db->prepare("SELECT * FROM users WHERE email = ? AND is_active = 1");
-        $stmt->execute([$email]);
+        $stmt = $db->prepare("SELECT * FROM users WHERE (email = ? OR username = ?) AND is_active = 1");
+        $stmt->execute([$login, $login]);
         $user = $stmt->fetch();
         
         if ($user && verify_password($password, $user['password'])) {
@@ -48,7 +48,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     redirect(SITE_URL);
             }
         } else {
-            $errors[] = 'البريد الإلكتروني أو كلمة المرور غير صحيحة';
+            $errors[] = 'بيانات الدخول غير صحيحة';
         }
     }
 }
@@ -75,11 +75,11 @@ require_once '../includes/header.php';
                     
                     <form method="POST" action="">
                         <div class="mb-3">
-                            <label for="email" class="form-label">البريد الإلكتروني</label>
+                            <label for="login" class="form-label">اسم المستخدم أو البريد الإلكتروني</label>
                             <div class="input-group">
-                                <span class="input-group-text"><i class="fas fa-envelope"></i></span>
-                                <input type="email" class="form-control" id="email" name="email" 
-                                       value="<?php echo htmlspecialchars($_POST['email'] ?? ''); ?>" required>
+                                <span class="input-group-text"><i class="fas fa-user"></i></span>
+                                <input type="text" class="form-control" id="login" name="login" 
+                                       value="<?php echo htmlspecialchars($_POST['login'] ?? ''); ?>" required>
                             </div>
                         </div>
                         

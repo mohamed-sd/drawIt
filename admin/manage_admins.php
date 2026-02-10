@@ -23,6 +23,7 @@ $success = '';
 // إضافة مدير جديد
 if (isset($_POST['action']) && $_POST['action'] === 'add_admin') {
     $full_name = clean_input($_POST['full_name'] ?? '');
+    $username = clean_input($_POST['username'] ?? '');
     $email = clean_input($_POST['email'] ?? '');
     $phone = clean_input($_POST['phone'] ?? '');
     $password = $_POST['password'] ?? '';
@@ -30,6 +31,9 @@ if (isset($_POST['action']) && $_POST['action'] === 'add_admin') {
 
     if (empty($full_name)) {
         $errors[] = 'الاسم الكامل مطلوب';
+    }
+    if (empty($username)) {
+        $errors[] = 'اسم المستخدم مطلوب';
     }
     if (empty($email) || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
         $errors[] = 'البريد الإلكتروني غير صحيح';
@@ -47,18 +51,18 @@ if (isset($_POST['action']) && $_POST['action'] === 'add_admin') {
 
     // التحقق من عدم تكرار البريد
     if (empty($errors)) {
-        $stmt = $db->prepare("SELECT id FROM users WHERE email = ?");
-        $stmt->execute([$email]);
+        $stmt = $db->prepare("SELECT id FROM users WHERE email = ? OR username = ?");
+        $stmt->execute([$email, $username]);
         if ($stmt->fetch()) {
-            $errors[] = 'البريد الإلكتروني مستخدم مسبقاً';
+            $errors[] = 'البريد الإلكتروني أو اسم المستخدم مستخدم مسبقاً';
         }
     }
 
     if (empty($errors)) {
         try {
             $hashed_password = hash_password($password);
-            $stmt = $db->prepare("INSERT INTO users (full_name, email, phone, password, role_id, is_active) VALUES (?, ?, ?, ?, ?, 1)");
-            $stmt->execute([$full_name, $email, $phone, $hashed_password, $role_id]);
+            $stmt = $db->prepare("INSERT INTO users (full_name, username, email, phone, password, role_id, is_active) VALUES (?, ?, ?, ?, ?, ?, 1)");
+            $stmt->execute([$full_name, $username, $email, $phone, $hashed_password, $role_id]);
             set_flash_message('تم إضافة المدير بنجاح', 'success');
             redirect(SITE_URL . '/admin/manage_admins.php');
         } catch (PDOException $e) {
@@ -107,7 +111,7 @@ if (isset($_GET['delete']) && is_numeric($_GET['delete'])) {
 }
 
 // قائمة المدراء
-$stmt = $db->query("SELECT id, full_name, email, phone, is_active, created_at FROM users WHERE role_id = 3 ORDER BY created_at DESC");
+$stmt = $db->query("SELECT id, full_name, username, email, phone, is_active, created_at FROM users WHERE role_id = 3 ORDER BY created_at DESC");
 $admins = $stmt->fetchAll();
 
 $page_title = 'إدارة المدراء';
@@ -146,6 +150,10 @@ require_once '../includes/header.php';
                         <input type="text" name="full_name" class="form-control" required>
                     </div>
                     <div class="col-md-4">
+                        <label class="form-label">اسم المستخدم *</label>
+                        <input type="text" name="username" class="form-control" required>
+                    </div>
+                    <div class="col-md-4">
                         <label class="form-label">البريد الإلكتروني *</label>
                         <input type="email" name="email" class="form-control" required>
                     </div>
@@ -177,6 +185,7 @@ require_once '../includes/header.php';
                         <thead>
                             <tr>
                                 <th>الاسم</th>
+                                <th>اسم المستخدم</th>
                                 <th>البريد</th>
                                 <th>الجوال</th>
                                 <th>الحالة</th>
@@ -187,12 +196,13 @@ require_once '../includes/header.php';
                         <tbody>
                             <?php if (empty($admins)): ?>
                                 <tr>
-                                    <td colspan="6" class="text-center py-4 text-muted">لا يوجد مدراء إضافيون</td>
+                                    <td colspan="7" class="text-center py-4 text-muted">لا يوجد مدراء إضافيون</td>
                                 </tr>
                             <?php else: ?>
                                 <?php foreach ($admins as $admin): ?>
                                     <tr>
                                         <td><?php echo htmlspecialchars($admin['full_name']); ?></td>
+                                        <td><?php echo htmlspecialchars($admin['username'] ?? '-'); ?></td>
                                         <td><?php echo htmlspecialchars($admin['email']); ?></td>
                                         <td><?php echo htmlspecialchars($admin['phone'] ?? '-'); ?></td>
                                         <td>

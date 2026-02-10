@@ -12,7 +12,7 @@ define('DB_PASS', '');
 define('DB_CHARSET', 'utf8mb4');
 
 // إعدادات الموقع
-define('SITE_NAME', 'DrawIt - منصة مسابقات الرسم');
+define('SITE_NAME', 'DrawIt - منصة المسابقات الإبداعية');
 define('SITE_URL', 'http://localhost/drawIt');
 define('SITE_EMAIL', 'info@drawit.com');
 

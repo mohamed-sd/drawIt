@@ -5,8 +5,8 @@
         <div class="container">
             <div class="row">
                 <div class="col-md-4 mb-3">
-                    <h5 class="fw-bold"><i class="fas fa-palette"></i> DrawIt</h5>
-                    <p>منصة مسابقات الرسم - حيث يلتقي الإبداع بالموهبة</p>
+                    <h5 class="fw-bold"><i class="fas fa-award"></i> DrawIt</h5>
+                    <p>منصة المسابقات الإبداعية - حيث يلتقي الإبداع بالموهبة</p>
                     <div class="social-links">
                         <a href="#" class="text-white me-3"><i class="fab fa-facebook fa-lg"></i></a>
                         <a href="#" class="text-white me-3"><i class="fab fa-twitter fa-lg"></i></a>

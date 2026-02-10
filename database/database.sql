@@ -23,6 +23,7 @@ INSERT INTO roles (name, description) VALUES
 CREATE TABLE users (
     id INT PRIMARY KEY AUTO_INCREMENT,
     full_name VARCHAR(100) NOT NULL,
+    username VARCHAR(50) UNIQUE,
     email VARCHAR(100) NOT NULL UNIQUE,
     password VARCHAR(255) NOT NULL,
     phone VARCHAR(20),
@@ -34,9 +35,48 @@ CREATE TABLE users (
     FOREIGN KEY (role_id) REFERENCES roles(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- جدول المسابقات
+CREATE TABLE competitions (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    name VARCHAR(150) NOT NULL,
+    slug VARCHAR(150) UNIQUE,
+    description TEXT,
+    rules TEXT,
+    category VARCHAR(100),
+    is_active BOOLEAN DEFAULT TRUE,
+    created_by INT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- جدول ربط المدراء بالمسابقات
+CREATE TABLE competition_admins (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    competition_id INT NOT NULL,
+    admin_id INT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY unique_comp_admin (competition_id, admin_id),
+    FOREIGN KEY (competition_id) REFERENCES competitions(id) ON DELETE CASCADE,
+    FOREIGN KEY (admin_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- جدول اشتراكات المتسابقين في المسابقات
+CREATE TABLE competition_contestants (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    competition_id INT NOT NULL,
+    user_id INT NOT NULL,
+    status ENUM('active', 'blocked') DEFAULT 'active',
+    joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY unique_comp_contestant (competition_id, user_id),
+    FOREIGN KEY (competition_id) REFERENCES competitions(id) ON DELETE CASCADE,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- جدول المراحل
 CREATE TABLE stages (
     id INT PRIMARY KEY AUTO_INCREMENT,
+    competition_id INT NOT NULL,
     name VARCHAR(100) NOT NULL,
     stage_number INT NOT NULL,
     description TEXT,
@@ -45,18 +85,27 @@ CREATE TABLE stages (
     start_date DATE,
     end_date DATE,
     max_qualifiers INT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (competition_id) REFERENCES competitions(id) ON DELETE CASCADE,
+    UNIQUE KEY unique_comp_stage (competition_id, stage_number)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- إضافة المراحل الأساسية
-INSERT INTO stages (name, stage_number, description, is_free_voting, is_active, max_qualifiers) VALUES 
-('المرحلة الأولى', 1, 'مشاركة مفتوحة مع تصويت مجاني', TRUE, TRUE, 20),
-('المرحلة الثانية', 2, 'المرحلة النصف نهائية مع تصويت مدفوع', FALSE, FALSE, 10),
-('المرحلة النهائية', 3, 'المرحلة النهائية - 3 متسابقين فقط', FALSE, FALSE, 3);
+-- إنشاء مسابقة افتراضية
+INSERT INTO competitions (name, slug, description, rules, category, is_active) VALUES
+('مسابقة الرسم', 'drawing-competition', 'مسابقة لأفضل رسمة إبداعية', 'يجب أن يكون الفيديو واضحاً ويظهر خطوات العمل.', 'رسم', TRUE);
+
+SET @default_competition_id = LAST_INSERT_ID();
+
+-- إضافة المراحل الأساسية للمسابقة الافتراضية
+INSERT INTO stages (competition_id, name, stage_number, description, is_free_voting, is_active, max_qualifiers) VALUES 
+(@default_competition_id, 'المرحلة الأولى', 1, 'مشاركة مفتوحة مع تصويت مجاني', TRUE, TRUE, 20),
+(@default_competition_id, 'المرحلة الثانية', 2, 'المرحلة النصف نهائية مع تصويت مدفوع', FALSE, FALSE, 10),
+(@default_competition_id, 'المرحلة النهائية', 3, 'المرحلة النهائية - 3 متسابقين فقط', FALSE, FALSE, 3);
 
 -- جدول الرسومات/الأعمال
 CREATE TABLE drawings (
     id INT PRIMARY KEY AUTO_INCREMENT,
+    competition_id INT NOT NULL,
     user_id INT NOT NULL,
     stage_id INT NOT NULL,
     title VARCHAR(200) NOT NULL,
@@ -70,6 +119,7 @@ CREATE TABLE drawings (
     total_paid_votes INT DEFAULT 0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (competition_id) REFERENCES competitions(id) ON DELETE CASCADE,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     FOREIGN KEY (stage_id) REFERENCES stages(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -184,7 +234,7 @@ CREATE TABLE settings (
 
 -- إضافة إعدادات أساسية
 INSERT INTO settings (setting_key, setting_value, description) VALUES 
-('site_name', 'DrawIt - منصة مسابقات الرسم', 'اسم الموقع'),
+('site_name', 'DrawIt - منصة المسابقات الإبداعية', 'اسم الموقع'),
 ('vote_price', '5.00', 'سعر التصويت المدفوع'),
 ('competition_status', 'active', 'حالة المسابقة: active, paused, ended'),
 ('max_admins', '5', 'الحد الأقصى للمدراء'),
@@ -193,6 +243,10 @@ INSERT INTO settings (setting_key, setting_value, description) VALUES
 -- إنشاء مؤشرات لتحسين الأداء
 CREATE INDEX idx_drawings_user ON drawings(user_id);
 CREATE INDEX idx_drawings_stage ON drawings(stage_id);
+CREATE INDEX idx_drawings_competition ON drawings(competition_id);
+CREATE INDEX idx_stages_competition ON stages(competition_id);
+CREATE INDEX idx_competition_admins ON competition_admins(competition_id);
+CREATE INDEX idx_competition_contestants ON competition_contestants(competition_id);
 CREATE INDEX idx_drawings_status ON drawings(status);
 CREATE INDEX idx_votes_drawing ON votes(drawing_id);
 CREATE INDEX idx_votes_ip ON votes(voter_ip);

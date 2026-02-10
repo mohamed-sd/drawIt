@@ -15,6 +15,9 @@ if (!is_logged_in() || !is_admin()) {
 
 $db = getDB();
 $user = get_current_user_data();
+$admin_competitions = get_admin_competitions($user['id']);
+$active_competition = get_admin_active_competition($user['id']);
+$competition_id = $active_competition['id'] ?? null;
 
 // فلترة حسب الحالة
 $status_filter = $_GET['status'] ?? 'pending';
@@ -23,17 +26,20 @@ if (!in_array($status_filter, $allowed_status, true)) {
     $status_filter = 'pending';
 }
 
-$stmt = $db->prepare("SELECT d.*, u.full_name, s.name as stage_name,
-                      (SELECT COUNT(*) FROM admin_approvals WHERE drawing_id = d.id AND approval_status = 'approved') as approved_count,
-                      (SELECT COUNT(*) FROM admin_approvals WHERE drawing_id = d.id) as total_admins,
-                      (SELECT approval_status FROM admin_approvals WHERE drawing_id = d.id AND admin_id = ?) as my_status
-                      FROM drawings d
-                      JOIN users u ON d.user_id = u.id
-                      JOIN stages s ON d.stage_id = s.id
-                      WHERE d.status = ?
-                      ORDER BY d.created_at DESC");
-$stmt->execute([$user['id'], $status_filter]);
-$drawings = $stmt->fetchAll();
+$drawings = [];
+if ($competition_id) {
+    $stmt = $db->prepare("SELECT d.*, u.full_name, s.name as stage_name,
+                          (SELECT COUNT(*) FROM admin_approvals WHERE drawing_id = d.id AND approval_status = 'approved') as approved_count,
+                          (SELECT COUNT(*) FROM admin_approvals WHERE drawing_id = d.id) as total_admins,
+                          (SELECT approval_status FROM admin_approvals WHERE drawing_id = d.id AND admin_id = ?) as my_status
+                          FROM drawings d
+                          JOIN users u ON d.user_id = u.id
+                          JOIN stages s ON d.stage_id = s.id
+                          WHERE d.status = ? AND d.competition_id = ?
+                          ORDER BY d.created_at DESC");
+    $stmt->execute([$user['id'], $status_filter, $competition_id]);
+    $drawings = $stmt->fetchAll();
+}
 
 $page_title = 'مراجعة الأعمال';
 require_once '../includes/header.php';
@@ -48,10 +54,35 @@ require_once '../includes/header.php';
             </a>
         </div>
 
+        <?php if (!empty($admin_competitions)): ?>
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <div>
+                    <h5 class="mb-1"><i class="fas fa-award"></i> المسابقة الحالية</h5>
+                    <p class="mb-0 text-muted"><?php echo htmlspecialchars($active_competition['name'] ?? ''); ?></p>
+                </div>
+                <form method="GET" action="" class="d-flex align-items-center gap-2">
+                    <input type="hidden" name="status" value="<?php echo htmlspecialchars($status_filter); ?>">
+                    <label for="competition_id" class="form-label mb-0">تغيير المسابقة</label>
+                    <select name="competition_id" id="competition_id" class="form-select" onchange="this.form.submit()">
+                        <?php foreach ($admin_competitions as $competition): ?>
+                            <option value="<?php echo $competition['id']; ?>" <?php echo ((int)$competition['id'] === (int)($active_competition['id'] ?? 0)) ? 'selected' : ''; ?>>
+                                <?php echo htmlspecialchars($competition['name']); ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                </form>
+            </div>
+        <?php else: ?>
+            <div class="alert alert-warning">
+                لا توجد مسابقات مرتبطة بحسابك حالياً.
+            </div>
+        <?php endif; ?>
+
         <div class="mb-4">
-            <a href="?status=pending" class="btn btn-sm <?php echo $status_filter === 'pending' ? 'btn-primary' : 'btn-outline-primary'; ?>">قيد المراجعة</a>
-            <a href="?status=approved" class="btn btn-sm <?php echo $status_filter === 'approved' ? 'btn-success' : 'btn-outline-success'; ?>">معتمدة</a>
-            <a href="?status=rejected" class="btn btn-sm <?php echo $status_filter === 'rejected' ? 'btn-danger' : 'btn-outline-danger'; ?>">مرفوضة</a>
+            <?php $competition_param = $competition_id ? '&competition_id=' . (int)$competition_id : ''; ?>
+            <a href="?status=pending<?php echo $competition_param; ?>" class="btn btn-sm <?php echo $status_filter === 'pending' ? 'btn-primary' : 'btn-outline-primary'; ?>">قيد المراجعة</a>
+            <a href="?status=approved<?php echo $competition_param; ?>" class="btn btn-sm <?php echo $status_filter === 'approved' ? 'btn-success' : 'btn-outline-success'; ?>">معتمدة</a>
+            <a href="?status=rejected<?php echo $competition_param; ?>" class="btn btn-sm <?php echo $status_filter === 'rejected' ? 'btn-danger' : 'btn-outline-danger'; ?>">مرفوضة</a>
         </div>
 
         <div class="admin-table">
